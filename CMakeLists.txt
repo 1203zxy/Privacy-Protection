@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.24)
+project(privacy_protector)
+find_package(OpenCV REQUIRED)
+add_executable(privacy_protector main.cpp)
+target_link_libraries(privacy_protector ${OpenCV_LIBS})
