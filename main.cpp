@@ -5,13 +5,13 @@ using namespace cv;
 using namespace std;
 
 int main(int argc, char** argv) {
-    // 定义参数格式（增大默认模糊值）
+    // 参数格式
     CommandLineParser parser(argc, argv, 
         "{help h||Show help message}"
         "{mode|blur|Mode: blur, pixel, mask}"
         "{blur_size|51|Blur kernel size (odd number, larger=more blur)}"
         "{pixel_size|15|Pixel block size (larger=more pixelated)}"
-        "{mask_image|default_mask.png|Path to mask image}"
+        "{mask_image|default_mask.png|Path to mask image (in mask/ folder)}"
         "{device|0|Camera device number}"
         "{stream||HTTP stream URL (overrides device)}"
     );
@@ -23,12 +23,14 @@ int main(int argc, char** argv) {
         cout << "  --mode=blur|pixel|mask   Protection mode" << endl;
         cout << "  --blur_size=N            Blur strength (odd, default 51)" << endl;
         cout << "  --pixel_size=N           Pixel block size (default 15)" << endl;
-        cout << "  --mask_image=path        Mask image path" << endl;
+        cout << "  --mask_image=filename    Mask image filename (in mask/ folder)" << endl;
         cout << "  --stream=url             HTTP stream URL" << endl;
         cout << "\nExamples:" << endl;
+        cout << "  ./privacy_protector" << endl;
+        cout << "  ./privacy_protector --stream=http://10.26.171.247:5000/video" << endl;
         cout << "  ./privacy_protector --mode=blur --blur_size=51" << endl;
         cout << "  ./privacy_protector --mode=pixel --pixel_size=15" << endl;
-        cout << "  ./privacy_protector --mode=mask --mask_image=emoji.png" << endl;
+        cout << "  ./privacy_protector --mode=mask --mask_image=mask1.png" << endl;
         return 0;
     }
 
@@ -36,11 +38,10 @@ int main(int argc, char** argv) {
     string mode = parser.get<string>("mode");
     int blur_size = parser.get<int>("blur_size");
     int pixel_size = parser.get<int>("pixel_size");
-    string mask_path = parser.get<string>("mask_image");
+    string mask_filename = parser.get<string>("mask_image");
     int device = parser.get<int>("device");
     string stream_url = parser.get<string>("stream");
 
-    // 检查参数是否解析成功
     if (!parser.check()) {
         parser.printErrors();
         cout << "\nUse --help for usage information." << endl;
@@ -65,11 +66,11 @@ int main(int argc, char** argv) {
     cout << "Mode: " << mode << endl;
     cout << "Blur size: " << blur_size << endl;
     cout << "Pixel size: " << pixel_size << endl;
-    cout << "Mask path: " << mask_path << endl;
+    cout << "Mask filename: " << mask_filename << endl;
     cout << "=========================" << endl;
 
-    // 步骤3: 加载 YuNet 模型
-    string model_path = "face_detection_yunet_2023mar.onnx";
+    // 加载 YuNet 模型
+    string model_path = "model/face_detection_yunet_2023mar.onnx";
     float score_threshold = 0.6f;
     float nms_threshold = 0.3f;
     int top_k = 5000;
@@ -85,7 +86,8 @@ int main(int argc, char** argv) {
     }
     cout << "YuNet model loaded successfully." << endl;
 
-    // 加载遮罩图片（仅 mask 模式需要）
+    // 加载遮罩图片
+    string mask_path = "mask/" + mask_filename;
     Mat mask_image = imread(mask_path, IMREAD_UNCHANGED);
     if (mask_image.empty()) {
         cerr << "Warning: Could not load mask image: " << mask_path << endl;
@@ -96,22 +98,24 @@ int main(int argc, char** argv) {
              << ", " << mask_image.channels() << " channels)" << endl;
     }
 
-    // 步骤4: 打开摄像头/视频流
+    // 打开摄像头/视频流
     VideoCapture cap;
     
-    // 如果提供了 stream URL，使用它；否则使用默认
-    if (stream_url.empty()) {
-        stream_url = "http://10.26.171.247:5000/video";  // 你的默认流地址
+    // 如果提供了 stream URL，使用它；否则使用本地摄像头 device
+    bool use_stream = !stream_url.empty();
+    if (use_stream) {
+        cout << "Connecting to stream: " << stream_url << endl;
+        cap.open(stream_url);
+    } else {
+        cout << "Opening local camera device: " << device << endl;
+        cap.open(device);
     }
-    
-    cout << "Connecting to: " << stream_url << endl;
-    cap.open(stream_url);
 
     if (!cap.isOpened()) {
-        cerr << "Failed to open camera stream!" << endl;
+        cerr << "Failed to open camera/stream!" << endl;
         return -1;
     }
-    cout << "Camera connected!" << endl;
+    cout << "Camera/stream connected!" << endl;
 
     Mat frame;
     string window_name = "Privacy Protector";
@@ -120,7 +124,7 @@ int main(int argc, char** argv) {
     int fail_count = 0;
     const int MAX_FAILS = 30;
 
-    // 显示控制提示
+    // 控制提示
     cout << "\nControls:" << endl;
     cout << "  ESC - Exit" << endl;
     cout << "  1   - Blur mode" << endl;
@@ -135,7 +139,11 @@ int main(int argc, char** argv) {
             if (fail_count >= MAX_FAILS) {
                 cerr << "Reconnecting..." << endl;
                 cap.release();
-                cap.open(stream_url);
+                if (use_stream) {
+                    cap.open(stream_url);
+                } else {
+                    cap.open(device);
+                }
                 fail_count = 0;
                 if (!cap.isOpened()) break;
             }
@@ -144,12 +152,10 @@ int main(int argc, char** argv) {
         }
         fail_count = 0;
 
-        // 检测人脸
         detector->setInputSize(frame.size());
         Mat faces;
         detector->detect(frame, faces);
 
-        // 应用隐私保护
         for (int i = 0; i < faces.rows; ++i) {
             Rect face_roi(
                 static_cast<int>(faces.at<float>(i, 0)),
@@ -183,23 +189,19 @@ int main(int argc, char** argv) {
                         Mat mask_bgr;
                         merge(vector<Mat>{channels[0], channels[1], channels[2]}, mask_bgr);
 
-                        // ===== 优化后的 Alpha 混合（矢量化） =====
                         Mat alpha_f, inv_alpha_f;
                         alpha.convertTo(alpha_f, CV_32F, 1.0/255.0);
                         inv_alpha_f = 1.0 - alpha_f;
 
-                        // 转为 float 做混合
                         Mat roi_f, mask_f;
                         roi.convertTo(roi_f, CV_32FC3);
                         mask_bgr.convertTo(mask_f, CV_32FC3);
 
-                        // 广播 alpha 到 3 通道
                         Mat alpha_3ch;
                         cvtColor(alpha_f, alpha_3ch, COLOR_GRAY2BGR);
                         Mat inv_alpha_3ch;
                         cvtColor(inv_alpha_f, inv_alpha_3ch, COLOR_GRAY2BGR);
 
-                        // 矢量化混合
                         Mat blended = inv_alpha_3ch.mul(roi_f) + alpha_3ch.mul(mask_f);
                         blended.convertTo(roi, CV_8UC3);
                     }
@@ -221,7 +223,7 @@ int main(int argc, char** argv) {
                 static_cast<int>(faces.at<float>(i, 3))
             );
             box &= Rect(0, 0, frame.cols, frame.rows);
-            rectangle(frame, box, Scalar(0, 255, 0), 1);  // 细绿框，仅提示
+            rectangle(frame, box, Scalar(0, 255, 0), 1);  
         }
 
         // 显示状态
@@ -262,13 +264,14 @@ int main(int argc, char** argv) {
             }
         }
         else if (key == 'u' || key == 'U') {
-            cout << "\nPausing stream. Enter new mask path (or press Enter to cancel): " << flush;
-            cap.release();  // 暂停视频流
+            cout << "\nPausing. Enter new mask filename (or press Enter to cancel): " << flush;
+            cap.release();  
     
-            string new_mask_path;
-            getline(cin, new_mask_path);
+            string new_filename;
+            getline(cin, new_filename);
     
-            if (!new_mask_path.empty()) {
+            if (!new_filename.empty()) {
+                string new_mask_path = "mask/" + new_filename;
                 Mat new_mask = imread(new_mask_path, IMREAD_UNCHANGED);
                 if (!new_mask.empty()) {
                     mask_image = new_mask;
@@ -280,8 +283,12 @@ int main(int argc, char** argv) {
                 }
             }
     
-            cout << "Reconnecting to stream..." << endl;
-            cap.open(stream_url);  // 重新连接
+            cout << "Reconnecting ..." << endl;
+            if (use_stream) {
+                cap.open(stream_url);
+            } else {
+                cap.open(device);
+            }
         }
     }
 
