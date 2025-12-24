@@ -29,7 +29,8 @@ cmake . && make
 ./privacy_protector                                      # 默认：blur 模式，使用本地摄像头
 ./privacy_protector --mode pixel --pixel_size 20
 ./privacy_protector --mode mask --mask_image mask1.png
-./privacy_protector --stream http://your-ip:5000/video   # WSL 用户使用流
+./privacy_protector --device 1                           # 指定本地摄像头设备
+./privacy_protector --stream http://your-ip:5000/video   # WSL 用户使用流（优先于 --device）
 ````
 
 ## 命令行参数
@@ -39,6 +40,7 @@ cmake . && make
 | --blur_size   | 模糊核大小（需为奇数，数值越大模糊效果越强） | 51                   |
 | --pixel_size  | 像素块大小（数值越大像素化效果越明显）    | 15                   |
 | --mask_image  | 遮罩图片文件名（图片需放在 mask/ 文件夹下） | default_mask.png     |
+| --device      | 本地摄像头设备编号                       | 0                  |
 | --stream      | HTTP 视频流地址（指定后优先于本地摄像头）  | 无（默认用本地摄像头） |
 
 ## 运行时交互操作
