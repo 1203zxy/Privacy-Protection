@@ -17,8 +17,8 @@
 - 遮罩图片：存放在 `mask/` 文件夹中，支持透明 PNG（alpha 通道）以获得更好效果
 - 编译工具：CMake + GCC/Clang
 
-**推荐环境**：Ubuntu / WSL2 + OpenCV 4.12（从源编译）
-
+**推荐环境**：Ubuntu / WSL2 + OpenCV 4.12（从源编译）<br>
+  - 此外，为支持 WSL 环境下的摄像头访问，本项目扩展了 HTTP 视频流功能。可在 Windows 端 powershell 运行Flask 文件夹中的 webcam_server.py 代码捕获摄像头并提供流传输。然后在程序中使用 --stream http://<Windows_IP>:5000/video 指定地址（替换 <Windows_IP> 为 ipconfig 查询的 IPv4）
 ## 编译与运行
 
 ```bash
